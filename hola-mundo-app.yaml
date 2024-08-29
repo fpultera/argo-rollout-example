@@ -1,0 +1,118 @@
+---
+# Namespace definition
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hola-mundo
+---
+# Source: hola-mundo/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hola-mundo
+  namespace: hola-mundo
+  labels:
+    app: hola-mundo
+---
+# Source: hola-mundo/templates/canary/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hola-mundo-canary
+  namespace: hola-mundo
+  labels: &labels
+    app: hola-mundo
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  selector: *labels
+---
+# Source: hola-mundo/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hola-mundo
+  namespace: hola-mundo
+  labels: &labels
+    app: hola-mundo
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  selector: *labels
+---
+# Source: hola-mundo/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hola-mundo
+  namespace: hola-mundo
+  labels:
+    app: hola-mundo
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: hola-mundo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hola-mundo
+                port:
+                  name: http
+---
+# Source: hola-mundo/templates/rollout.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: hola-mundo
+  namespace: hola-mundo
+  labels: &labels
+    app: hola-mundo
+spec:
+  replicas: 1
+  strategy:
+    canary:
+      canaryService: hola-mundo-canary
+      stableService: hola-mundo
+      canaryMetadata:
+        labels:
+          deployment: canary
+      stableMetadata:
+        labels:
+          deployment: stable
+      trafficRouting:
+        nginx:
+          stableIngress: hola-mundo
+          additionalIngressAnnotations:
+            canary-by-header: X-Canary
+      steps:
+        - setWeight: 25
+        - pause: {}
+        - setWeight: 50
+        - pause: {}
+        - setWeight: 75
+        - pause: {}
+  selector:
+    matchLabels: *labels
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: hola-mundo
+      containers:
+        - name: hola-mundo
+          image: "hola-mundo:v1"
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 80
